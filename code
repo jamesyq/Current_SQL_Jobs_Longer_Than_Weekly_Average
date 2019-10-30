@@ -1,0 +1,21 @@
+WITH cte as (
+SELECT h.[job_id], j.[name],
+AVG((h.run_duration/10000*3600 + (h.run_duration/100)%100*60 + h.run_duration%100 + 31 ) / 60) as [WeeklyAvg]
+FROM dbo.sysjobhistory as h
+INNER JOIN dbo.sysjobs AS j ON j.job_id = h.job_id
+AND h.[step_id] = 0
+AND h.run_date >=  CAST( CONVERT( VARCHAR(10), DATEADD(DAY, -7, GETDATE()),112) as INT)
+GROUP BY h.[job_id],  j.[name] 
+)
+SELECT @@SERVERNAME as 'ServerName', j.name as LongRunningJob, 
+convert(varchar(20), a.start_execution_date, 120) as 'Start Time',
+DATEDIFF(mi, a.start_execution_date, GETDATE()) as MinsRunning,
+d.WeeklyAvg,
+(DATEDIFF(mi, a.start_execution_date, GETDATE())-d.WeeklyAvg)*100/IIF(d.WeeklyAvg=0,1,d.WeeklyAvg) as PercentDiff
+FROM dbo.sysjobs j
+join dbo.sysjobactivity a on (j.job_id = a.job_id)
+join cte d on (d.job_id = j.job_id)
+	WHERE a.session_id in (SELECT session_id FROM syssessions) --active session
+	and (a.start_execution_date IS NOT NULL and a.stop_execution_date IS NULL)
+	AND ((DATEDIFF(mi, a.start_execution_date, GETDATE())-d.WeeklyAvg)*100/IIF(d.WeeklyAvg=0,1,d.WeeklyAvg)) > 5 --Percentage threshold set to 5
+	order by 'ServerName','MinsRunning' desc
